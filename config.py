@@ -32,6 +32,7 @@ CACHE_DIR = config("CACHE_DIR", default="cache")
 # OCR language settings
 OCR_LANGUAGES = parse_csv_config("OCR_LANGUAGES", "en,fa,ar")
 OCR_RECOG_NETWORK = config("OCR_RECOG_NETWORK", default="").strip() or None
+OCR_INCLUDE_RAW_TEXT = config("OCR_INCLUDE_RAW_TEXT", default=False, cast=bool)
 
 # OCR parameters (you can add more tuning parameters here)
 OCR_PARAMS = {

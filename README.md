@@ -144,10 +144,24 @@ Processes an ID card image and extracts information.
 
 ```json
 {
-  "Name": "MD SAMIM MIA",
-  "Date of birth": "07 Jun 1972",
-  "ID Number": "9116217028",
-  "Full extracted text": "...",
+  "document_type": "Civil ID Card",
+  "country": "Kuwait",
+  "civil_id": "290022400724",
+  "name": {
+    "en": "NADER ASSAF SHUAIL ALOTAIBI",
+    "ar": ""
+  },
+  "nationality": {
+    "code": "KWT",
+    "text": "كويتي"
+  },
+  "sex": {
+    "code": "M",
+    "text": "ذكر"
+  },
+  "birth_date": "1990-02-24",
+  "issue_date": "",
+  "expiry_date": "2027-08-31",
   "similarity": {
     "status": "no_comparison_data_provided"
   }
@@ -222,6 +236,7 @@ The application uses environment variables defined in .env for configuration:
 | CACHE_DIR          | Directory for temporary files  | cache           |
 | OCR_LANGUAGES      | Comma-separated EasyOCR language codes | en,fa,ar |
 | OCR_RECOG_NETWORK  | Optional EasyOCR recognition network override | Empty |
+| OCR_INCLUDE_RAW_TEXT | Include raw OCR text under `debug.raw_text` | false |
 
 By default, OCR runs with English, Persian, and Arabic enabled:
 

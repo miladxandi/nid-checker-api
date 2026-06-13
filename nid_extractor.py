@@ -4,7 +4,7 @@ import os
 import re
 import cv2
 import numpy as np
-from config import OCR_LANGUAGES, OCR_PARAMS, OCR_RECOG_NETWORK
+from config import OCR_INCLUDE_RAW_TEXT, OCR_LANGUAGES, OCR_PARAMS, OCR_RECOG_NETWORK
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -36,6 +36,29 @@ ARABIC_FIELD_BOUNDARIES = (
 ARABIC_NAME_JUNK_WORDS = {'داا'}
 
 
+def empty_nid_data():
+    return {
+        'document_type': '',
+        'country': '',
+        'civil_id': '',
+        'name': {
+            'en': '',
+            'ar': '',
+        },
+        'nationality': {
+            'code': '',
+            'text': '',
+        },
+        'sex': {
+            'code': '',
+            'text': '',
+        },
+        'birth_date': '',
+        'issue_date': '',
+        'expiry_date': '',
+    }
+
+
 def normalize_ocr_text(text):
     """Normalize Arabic/Persian OCR text without losing the original script."""
     return text.translate(DIGIT_TRANSLATION_TABLE).replace('\u200c', ' ')
@@ -55,6 +78,46 @@ def clean_name_candidate(name_candidate):
 def clean_id_candidate(id_text):
     normalized_id = id_text.translate(ID_OCR_TRANSLATION_TABLE)
     return re.sub(r'\D', '', normalized_id)
+
+
+def clean_english_name_candidate(name_candidate):
+    name_candidate = re.sub(r'\s+', ' ', name_candidate).strip(' :：.-')
+    return re.split(
+        r'\s+(?:Nationality|Sex|Birth|Expiry|Civil|ID|No)\b',
+        name_candidate,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+
+
+def normalize_date_value(date_text):
+    parts = re.split(r'[\/\.-]', date_text.strip())
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return date_text.strip()
+
+    first, second, third = parts
+    if len(first) == 4:
+        year, month, day = first, second, third
+    elif len(third) == 4:
+        year = third
+        if int(first) > 12:
+            day, month = first, second
+        elif int(second) > 12:
+            month, day = first, second
+        else:
+            day, month = first, second
+    else:
+        return date_text.strip()
+
+    return f"{year.zfill(4)}-{month.zfill(2)}-{day.zfill(2)}"
+
+
+def first_group_match(patterns, text, flags=0):
+    for pattern in patterns:
+        match = re.search(pattern, text, flags)
+        if match:
+            return match.group(1).strip()
+    return ''
 
 
 def build_reader(languages, gpu_available):
@@ -91,12 +154,7 @@ def extract_nid_fields(image) -> dict:
     Extract and validate NID fields from the given image using OCR.
     Returns a dictionary with the extracted information.
     """
-    nid_data = {
-        'Name': '',
-        'Date of birth': '',
-        'ID Number': '',
-        'Full extracted text': ''
-    }
+    nid_data = empty_nid_data()
 
     try:
         # Handle different image input formats
@@ -157,15 +215,24 @@ def extract_nid_fields(image) -> dict:
         
         full_text = " ".join(text_blocks)
         normalized_text = normalize_ocr_text(full_text)
-        nid_data['Full extracted text'] = full_text.strip()
+        if OCR_INCLUDE_RAW_TEXT:
+            nid_data['debug'] = {'raw_text': full_text.strip()}
+
+        if re.search(r'\bSTATE\s+OF\s+KUWAIT\b|الكويت|کويت|کویعت', normalized_text, re.IGNORECASE):
+            nid_data['country'] = 'Kuwait'
+        if re.search(r'\bCIVIL\s+ID\s+CARD\b|بطاقة|بطاقتا|مدنية|مدنیة', normalized_text, re.IGNORECASE):
+            nid_data['document_type'] = 'Civil ID Card'
         
         # IMPROVED NAME PATTERNS
         name_patterns = [
+            # Match English names on Kuwait/Gulf ID cards.
+            r'Name\s+([A-Z][A-Z\s]{2,80}?)(?=\s+(?:Nationality|Sex|Birth|Expiry|Civil|ال|KWT|\d)|$)',
+
             # Match Arabic names on Gulf ID cards, including common OCR variants.
-            r'(?:الإ?سم|الأسم|الاستم|الإستم|اسم|الاسم)\s*[:：.]?\s*([\u0600-\u06FF][\u0600-\u06FF\sـ]{2,80}?)(?=\s+(?:الجنسية|الجنسیة|تاريخ|تاریخ|مطالب|تعديل|الرقم|رقم|\d)|$)',
+            r'(?:الإ?سم|الأسم|الاستم|الإستم|اسم|الاسم)\s*[:：.]?\s*([\u0600-\u06FF][\u0600-\u06FF\sـ]{2,80}?)(?=\s+(?:Name|Nationality|Sex|Birth|الجنسية|الجنسیة|تاريخ|تاریخ|مطالب|تعديل|الرقم|رقم|\d)|$)',
 
             # Match Persian/Arabic name labels.
-            r'(?:نام(?:\s+و\s+نام\s+خانوادگی)?|اسم|الاسم)\s*[:：.]?\s*([\u0600-\u06FF][\u0600-\u06FF\sـ]{2,80}?)(?=\s+(?:تاریخ|تاريخ|تولد|میلاد|الميلاد|شماره|رقم|کد|كد|الجنسية|الجنسیة|ID|NID|\d)|$)',
+            r'(?:نام(?:\s+و\s+نام\s+خانوادگی)?|اسم|الاسم)\s*[:：.]?\s*([\u0600-\u06FF][\u0600-\u06FF\sـ]{2,80}?)(?=\s+(?:Name|Nationality|Sex|Birth|تاریخ|تاريخ|تولد|میلاد|الميلاد|شماره|رقم|کد|كد|الجنسية|الجنسیة|ID|NID|\d)|$)',
 
             # Match "Name" followed by uppercase name (common on ID cards)
             r'Name\s*[:.]?\s*([A-Z][A-Z\s\.]+)(?=\s+(?:fet|faot|ent|Date|Birth|DOB|NID|ID|No|\d)|\n|$)',
@@ -192,7 +259,13 @@ def extract_nid_fields(image) -> dict:
         for pattern in name_patterns:
             name_match = re.search(pattern, normalized_text)  # Remove IGNORECASE flag
             if name_match:
-                name_candidate = clean_name_candidate(name_match.group(1))
+                raw_name_candidate = name_match.group(1)
+                if re.search(r'[\u0600-\u06FF]', raw_name_candidate):
+                    name_candidate = clean_name_candidate(raw_name_candidate)
+                    name_key = 'ar'
+                else:
+                    name_candidate = clean_english_name_candidate(raw_name_candidate)
+                    name_key = 'en'
                 
                 # Skip if name is in blacklist
                 if any(blacklisted.lower() in name_candidate.lower() for blacklisted in name_blacklist):
@@ -201,16 +274,30 @@ def extract_nid_fields(image) -> dict:
                     
                 # Validate name has reasonable length and format
                 if ' ' in name_candidate and 4 <= len(name_candidate) <= 50:
-                    nid_data['Name'] = name_candidate
+                    nid_data['name'][name_key] = name_candidate
                     logger.info(f"Found valid name: {name_candidate}")
-                    break
                 elif len(name_candidate) > 5 and not re.search(r'\d', name_candidate):
-                    nid_data['Name'] = name_candidate
+                    nid_data['name'][name_key] = name_candidate
                     logger.info(f"Found potential single-word name: {name_candidate}")
-                    # Don't break, keep looking for better matches
+
+        nid_data['nationality']['code'] = first_group_match(
+            [r'\bNationality\s+([A-Z]{2,4})\b'],
+            normalized_text,
+            re.IGNORECASE,
+        )
+        nid_data['nationality']['text'] = first_group_match(
+            [r'(?:الجنسية|الجنسیة)\s*[:：.]?\s*([\u0600-\u06FF]{2,30})'],
+            normalized_text,
+        )
+
+        sex_code = first_group_match([r'\bSex\s+([MF])\b'], normalized_text, re.IGNORECASE)
+        sex_text = first_group_match([r'(?:الجنس|الجنسى)\s*[:：.]?\s*(ذكر|انثى|أنثى)'], normalized_text)
+        nid_data['sex']['code'] = sex_code.upper()
+        nid_data['sex']['text'] = sex_text
         
         # Extract date of birth with multiple patterns
         dob_patterns = [
+            r'(?:Birth\s+Date|Birthdate)[:：.]?\s*(\d{1,4}[\/\.-]\d{1,2}[\/\.-]\d{1,4})',
             r'(?:تاریخ تولد|تاريخ الميلاد|تولد|الميلاد|DOB|Birth)[:：.]?\s*(\d{4}[\/\.-]\d{1,2}[\/\.-]\d{1,2})',
             r'(?:تاریخ تولد|تاريخ الميلاد|تولد|الميلاد|DOB|Birth)[:：.]?\s*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})',
             r'(?:Date of Birth|DOB|Birth)[:.]?\s*(\d{1,2}[\s-](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s-]\d{2,4})',
@@ -223,12 +310,34 @@ def extract_nid_fields(image) -> dict:
         for pattern in dob_patterns:
             dob_match = re.search(pattern, normalized_text, re.IGNORECASE)
             if dob_match:
-                nid_data['Date of birth'] = dob_match.group(1).strip()
-                logger.info(f"Found date of birth: {dob_match.group(1).strip()}")
+                nid_data['birth_date'] = normalize_date_value(dob_match.group(1))
+                logger.info(f"Found date of birth: {nid_data['birth_date']}")
                 break
+
+        issue_date = first_group_match(
+            [
+                r'(?:Issue\s+Date|Issued\s+Date)[:：.]?\s*(\d{1,4}[\/\.-]\d{1,2}[\/\.-]\d{1,4})',
+                r'(?:تاريخ الاصدار|تاريخ الإصدار|تاريخ الاصداء)[:：.]?\s*(\d{1,4}[\/\.-]\d{1,2}[\/\.-]\d{1,4})',
+            ],
+            normalized_text,
+            re.IGNORECASE,
+        )
+        expiry_date = first_group_match(
+            [
+                r'(?:Expiry\s+Date|Expiration\s+Date|Expiry)[:：.]?\s*(\d{1,4}[\/\.-]\d{1,2}[\/\.-]\d{1,4})',
+                r'(?:تاريخ الانتهاء|تاریخ الانتهاء|انتهاء)[:：.]?\s*(\d{1,4}[\/\.-]\d{1,2}[\/\.-]\d{1,4})',
+            ],
+            normalized_text,
+            re.IGNORECASE,
+        )
+        nid_data['issue_date'] = normalize_date_value(issue_date) if issue_date else ''
+        nid_data['expiry_date'] = normalize_date_value(expiry_date) if expiry_date else ''
         
         # COMPREHENSIVE ID NUMBER PATTERNS
         id_patterns = [
+            # Match English civil ID labels.
+            r'(?:Civil\s+ID\s+No|Civil\s+ID|ID\s+No)[:：.]?\s*([^\u0600-\u06FFA-Za-z]{5,24})',
+
             # Match Kuwait/Gulf civil ID labels and tolerate OCR punctuation in digits.
             r'(?:الرقم\s+المدني|الرقم\s+المدنى|رقم\s+مدني|رقم\s+مدنى)[:：.]?\s*([^\u0600-\u06FF]{5,24})',
 
@@ -270,12 +379,12 @@ def extract_nid_fields(image) -> dict:
                 
                 # Validate: Bangladesh NIDs are typically 10, 13, or 17 digits
                 if len(clean_id) in [10, 13, 17]:
-                    nid_data['ID Number'] = clean_id
+                    nid_data['civil_id'] = clean_id
                     logger.info(f"Found valid ID number format: {clean_id} (length: {len(clean_id)})")
                     break
                 else:
                     # Even if length is unusual, keep it if it looks like an ID
-                    nid_data['ID Number'] = clean_id
+                    nid_data['civil_id'] = clean_id
                     logger.info(f"Found ID with unusual length: {clean_id} (length: {len(clean_id)})")
                     # Continue searching for better matches
         

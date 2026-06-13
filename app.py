@@ -147,7 +147,11 @@ def process_image():
             similarity = {"status": "partial_comparison", "name_similarity": None, "dob_similarity": None}
             
             # Process name similarity if available
-            extracted_name = result.get("Name", "").strip()
+            extracted_names = result.get("name", {})
+            extracted_name = (
+                extracted_names.get("en", "")
+                or extracted_names.get("ar", "")
+            ).strip()
             if provided_name and extracted_name:
                 similarity["name_similarity"] = round(
                     difflib.SequenceMatcher(None, provided_name.upper(), extracted_name.upper()).ratio(), 2)
@@ -155,7 +159,7 @@ def process_image():
                 similarity["name_similarity"] = "no_extracted_name_available"
                 
             # Process DOB similarity if available
-            extracted_dob = result.get("Date of birth", "").strip()
+            extracted_dob = result.get("birth_date", "").strip()
             if provided_dob and extracted_dob:
                 similarity["dob_similarity"] = round(
                     difflib.SequenceMatcher(None, provided_dob.upper(), extracted_dob.upper()).ratio(), 2)

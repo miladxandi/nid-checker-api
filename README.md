@@ -1,14 +1,15 @@
-# Bangladesh National ID Card OCR Extractor
+# Kuwait Civil ID OCR Extractor
 
-A robust API for extracting information from Bangladesh National ID Cards using OCR technology. This service provides a secure, rate-limited REST API that processes images and extracts key information such as name, date of birth, and ID number.
+A robust API for extracting information from Kuwait Civil ID and security card images using OCR technology. This service provides a secure, rate-limited REST API that processes images and extracts structured information such as names, civil ID, dates, nationality, address, serial number, and MRZ data.
 
 ![Bangladesh NID](https://i.imgur.com/example.png)
 
 ## 📋 Features
 
-- **Robust Text Extraction**: Uses EasyOCR with specialized patterns for Bangladesh ID cards
+- **Template-Aware Extraction**: Uses 6 Kuwait card templates for front/back card layouts
+- **Robust Text Extraction**: Uses EasyOCR with field-specific regions and fallback patterns
 - **Multilingual OCR**: Supports English, Persian, and Arabic text by default
-- **High Accuracy**: Multiple pattern matching algorithms to handle various ID card formats
+- **High Accuracy**: Crops known field regions before OCR when a template is detected
 - **Secure API**: Token-based authentication and request rate limiting
 - **Cross-Platform**: Works on both Windows and Linux environments
 - **Field Validation**: Validates extracted information against provided data
@@ -144,12 +145,16 @@ Processes an ID card image and extracts information.
 
 ```json
 {
+  "template_id": "kuwait_front",
+  "card_type": "kuwaiti",
+  "side": "front",
   "document_type": "Civil ID Card",
   "country": "Kuwait",
   "civil_id": "290022400724",
+  "passport_no": "",
   "name": {
     "en": "NADER ASSAF SHUAIL ALOTAIBI",
-    "ar": ""
+    "ar": "نادر عساف شعيل العتيبي"
   },
   "nationality": {
     "code": "KWT",
@@ -162,11 +167,41 @@ Processes an ID card image and extracts information.
   "birth_date": "1990-02-24",
   "issue_date": "",
   "expiry_date": "2027-08-31",
+  "blood_type": "",
+  "profession": "",
+  "serial_no": "",
+  "mrz": {
+    "line1": "",
+    "line2": "",
+    "line3": ""
+  },
+  "address": {
+    "full": "",
+    "governorate": "",
+    "area": "",
+    "block": "",
+    "street": "",
+    "building": "",
+    "unit": "",
+    "floor": "",
+    "automated_address_no": "",
+    "phone": "",
+    "serial": ""
+  },
   "similarity": {
     "status": "no_comparison_data_provided"
   }
 }
 ```
+
+Supported templates:
+
+- `kuwait_front`: Kuwaiti civil ID front
+- `kuwait_back`: Kuwaiti civil ID back
+- `resident_front`: Resident civil ID front
+- `resident_back`: Resident civil ID back
+- `bedoon_front`: Bedoon/security card front
+- `bedoon_back`: Bedoon/security card back
 
 ## ⚠️ Common Issues and Troubleshooting
 

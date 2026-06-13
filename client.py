@@ -80,10 +80,16 @@ def send_image_to_ocr(image_path, server_url=None, auth_token=None, name=None, d
             
             # Print main extracted data safely
             name = result.get("name", {})
+            print(f"🧩 Template: {result.get('template_id', 'Not in response')}")
+            print(f"💳 Card Type: {result.get('card_type', 'Not in response')}")
+            print(f"↔️ Side: {result.get('side', 'Not in response')}")
             print(f"👤 Name (EN): {name.get('en', 'Not in response')}")
             print(f"👤 Name (AR/FA): {name.get('ar', 'Not in response')}")
             print(f"🎂 Date of Birth: {result.get('birth_date', 'Not in response')}")
             print(f"🆔 Civil ID: {result.get('civil_id', 'Not in response')}")
+            print(f"🛂 Passport No: {result.get('passport_no', 'Not in response')}")
+            print(f"🩸 Blood Type: {result.get('blood_type', 'Not in response')}")
+            print(f"🔢 Serial No: {result.get('serial_no', 'Not in response')}")
             
             # Print similarity scores if available
             if "similarity" in result:

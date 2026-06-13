@@ -19,10 +19,42 @@ DIGIT_TRANSLATION_TABLE = str.maketrans({
     '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
 })
 
+ID_OCR_TRANSLATION_TABLE = str.maketrans({
+    ')': '2',
+    '(': '2',
+    'O': '0',
+    'o': '0',
+    'I': '1',
+    'l': '1',
+})
+
+ARABIC_FIELD_BOUNDARIES = (
+    'تاریخ', 'تاريخ', 'تولد', 'میلاد', 'الميلاد', 'شماره', 'رقم',
+    'کد', 'كد', 'الرقم', 'المدني', 'الجنسية', 'الجنسیة',
+    'تعديل', 'مطالب', 'الاصدار', 'الإصدار', 'الاصداء', 'الانتهاء',
+)
+ARABIC_NAME_JUNK_WORDS = {'داا'}
+
 
 def normalize_ocr_text(text):
     """Normalize Arabic/Persian OCR text without losing the original script."""
     return text.translate(DIGIT_TRANSLATION_TABLE).replace('\u200c', ' ')
+
+
+def clean_name_candidate(name_candidate):
+    name_candidate = re.sub(r'\s+', ' ', name_candidate).strip(' :：.-ـ')
+    for boundary in ARABIC_FIELD_BOUNDARIES:
+        name_candidate = re.split(rf'\s+{re.escape(boundary)}\b', name_candidate, maxsplit=1)[0]
+
+    words = name_candidate.split()
+    while len(words) > 2 and words[-1] in ARABIC_NAME_JUNK_WORDS:
+        words.pop()
+    return ' '.join(words)
+
+
+def clean_id_candidate(id_text):
+    normalized_id = id_text.translate(ID_OCR_TRANSLATION_TABLE)
+    return re.sub(r'\D', '', normalized_id)
 
 
 def build_reader(languages, gpu_available):
@@ -129,8 +161,11 @@ def extract_nid_fields(image) -> dict:
         
         # IMPROVED NAME PATTERNS
         name_patterns = [
+            # Match Arabic names on Gulf ID cards, including common OCR variants.
+            r'(?:الإ?سم|الأسم|الاستم|الإستم|اسم|الاسم)\s*[:：.]?\s*([\u0600-\u06FF][\u0600-\u06FF\sـ]{2,80}?)(?=\s+(?:الجنسية|الجنسیة|تاريخ|تاریخ|مطالب|تعديل|الرقم|رقم|\d)|$)',
+
             # Match Persian/Arabic name labels.
-            r'(?:نام(?:\s+و\s+نام\s+خانوادگی)?|اسم|الاسم)\s*[:：.]?\s*([\u0600-\u06FF][\u0600-\u06FF\sـ]{2,50})(?=\s+(?:تاریخ|تاريخ|تولد|میلاد|الميلاد|شماره|رقم|کد|كد|ID|NID|\d)|$)',
+            r'(?:نام(?:\s+و\s+نام\s+خانوادگی)?|اسم|الاسم)\s*[:：.]?\s*([\u0600-\u06FF][\u0600-\u06FF\sـ]{2,80}?)(?=\s+(?:تاریخ|تاريخ|تولد|میلاد|الميلاد|شماره|رقم|کد|كد|الجنسية|الجنسیة|ID|NID|\d)|$)',
 
             # Match "Name" followed by uppercase name (common on ID cards)
             r'Name\s*[:.]?\s*([A-Z][A-Z\s\.]+)(?=\s+(?:fet|faot|ent|Date|Birth|DOB|NID|ID|No|\d)|\n|$)',
@@ -150,13 +185,14 @@ def extract_nid_fields(image) -> dict:
             "NATIONAL ID CARD", "ID CARD", "BANGLADESH", "GOVERNMENT", 
             "PEOPLES", "REPUBLIC", "CARD", "NATIONAL", "DATE OF BIRTH",
             "GOVERMENT", "soeezledt", "offthe", "Republic",
-            "کارت ملی", "جمهوری", "تاریخ تولد", "تاريخ الميلاد", "شماره ملی"
+            "کارت ملی", "جمهوری", "تاریخ تولد", "تاريخ الميلاد", "شماره ملی",
+            "الجنسية", "الجنسیة", "الرقم المدني"
         ]
         
         for pattern in name_patterns:
             name_match = re.search(pattern, normalized_text)  # Remove IGNORECASE flag
             if name_match:
-                name_candidate = name_match.group(1).strip()
+                name_candidate = clean_name_candidate(name_match.group(1))
                 
                 # Skip if name is in blacklist
                 if any(blacklisted.lower() in name_candidate.lower() for blacklisted in name_blacklist):
@@ -193,8 +229,11 @@ def extract_nid_fields(image) -> dict:
         
         # COMPREHENSIVE ID NUMBER PATTERNS
         id_patterns = [
+            # Match Kuwait/Gulf civil ID labels and tolerate OCR punctuation in digits.
+            r'(?:الرقم\s+المدني|الرقم\s+المدنى|رقم\s+مدني|رقم\s+مدنى)[:：.]?\s*([^\u0600-\u06FF]{5,24})',
+
             # Match Persian/Arabic national ID labels
-            r'(?:شماره(?:\s+ملی)?|کد(?:\s+ملی)?|كد(?:\s+وطني)?|رقم(?:\s+الهوية)?|رقم(?:\s+وطني)?)[:：.]?\s*(\d[\d\s-]{5,18}\d)',
+            r'(?:شماره(?:\s+ملی)?|کد(?:\s+ملی)?|كد(?:\s+وطني)?|رقم(?:\s+الهوية)?|رقم(?:\s+وطني)?)[:：.]?\s*([^\u0600-\u06FF]{5,24})',
 
             # Match "ID NO:" format 
             r'ID\s*NO[:.]?\s*(\d[\d\s-]{5,18}\d)',
@@ -225,8 +264,9 @@ def extract_nid_fields(image) -> dict:
             id_match = re.search(pattern, normalized_text)
             if id_match:
                 id_text = id_match.group(1)
-                # Clean up spaces and dashes in the ID number
-                clean_id = re.sub(r'[\s-]', '', id_text)
+                clean_id = clean_id_candidate(id_text)
+                if not clean_id:
+                    continue
                 
                 # Validate: Bangladesh NIDs are typically 10, 13, or 17 digits
                 if len(clean_id) in [10, 13, 17]:

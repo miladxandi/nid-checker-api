@@ -138,6 +138,7 @@ Processes an ID card image and extracts information.
 **Form Data:**
 
 - `image`: The image file (JPEG, PNG)
+- `template_id` (optional): One of the supported template IDs to skip automatic template detection
 - `Name` (optional): Name for comparison
 - `Date of Birth` (optional): Date of birth for comparison
 

@@ -123,7 +123,8 @@ def process_image():
 
     # Extract NID fields
     try:
-        result = extract_nid_fields(image)
+        template_id = request.form.get("template_id", "").strip() or None
+        result = extract_nid_fields(image, template_id=template_id)
     except Exception as e:
         logger.exception(f"Request {request_id}: OCR extraction error - {str(e)}")
         cleanup_file(image_path)

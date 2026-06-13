@@ -7,7 +7,7 @@ import requests
 from decouple import config
 
 
-def send_image_to_ocr(image_path, server_url=None, auth_token=None, name=None, dob=None):
+def send_image_to_ocr(image_path, server_url=None, auth_token=None, name=None, dob=None, template_id=None):
     """
     Send an image to the OCR API and get the extracted information.
     """
@@ -30,6 +30,8 @@ def send_image_to_ocr(image_path, server_url=None, auth_token=None, name=None, d
         form_data["Name"] = name
     if dob:
         form_data["Date of Birth"] = dob
+    if template_id:
+        form_data["template_id"] = template_id
     
     # Check if image exists
     image_path = Path(image_path)
@@ -124,6 +126,8 @@ if __name__ == "__main__":
                       help="Name to compare with extracted data")
     parser.add_argument("--dob", "-d", default=None,
                       help="Date of birth to compare with extracted data")
+    parser.add_argument("--template-id", default=None,
+                      help="Template ID to use for extraction")
     
     args = parser.parse_args()
     
@@ -136,7 +140,8 @@ if __name__ == "__main__":
         server_url=args.url,
         auth_token=args.token,
         name=args.name,
-        dob=args.dob
+        dob=args.dob,
+        template_id=args.template_id
     )
     
     # Write result to file for later analysis

@@ -7,6 +7,7 @@ A robust API for extracting information from Bangladesh National ID Cards using 
 ## 📋 Features
 
 - **Robust Text Extraction**: Uses EasyOCR with specialized patterns for Bangladesh ID cards
+- **Multilingual OCR**: Supports English, Persian, and Arabic text by default
 - **High Accuracy**: Multiple pattern matching algorithms to handle various ID card formats
 - **Secure API**: Token-based authentication and request rate limiting
 - **Cross-Platform**: Works on both Windows and Linux environments
@@ -78,7 +79,7 @@ A robust API for extracting information from Bangladesh National ID Cards using 
 
    ```bash
    sudo apt-get update
-   sudo apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev
+   sudo apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libmagic1
    ```
 
    For Arch Linux:
@@ -219,6 +220,16 @@ The application uses environment variables defined in .env for configuration:
 | RATE_LIMIT_WINDOW  | Rate limit window in seconds   | 60              |
 | MAX_CONTENT_LENGTH | Max allowed file size in bytes | 5MB (5242880)   |
 | CACHE_DIR          | Directory for temporary files  | cache           |
+| OCR_LANGUAGES      | Comma-separated EasyOCR language codes | en,fa,ar |
+| OCR_RECOG_NETWORK  | Optional EasyOCR recognition network override | Empty |
+
+By default, OCR runs with English, Persian, and Arabic enabled:
+
+```env
+OCR_LANGUAGES=en,fa,ar
+```
+
+Leave `OCR_RECOG_NETWORK` empty for multilingual OCR. Set it only when you intentionally want to force a specific EasyOCR recognition network.
 
 ## 🔒 Security Notes
 

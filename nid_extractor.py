@@ -4,7 +4,7 @@ import os
 import re
 import cv2
 import numpy as np
-from config import OCR_PARAMS
+from config import OCR_LANGUAGES, OCR_PARAMS, OCR_RECOG_NETWORK
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
@@ -12,30 +12,46 @@ logger = logging.getLogger(__name__)
 # Lazy-loaded reader instance to avoid multiple initializations
 reader = None
 
+DIGIT_TRANSLATION_TABLE = str.maketrans({
+    '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+    '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+})
+
+
+def normalize_ocr_text(text):
+    """Normalize Arabic/Persian OCR text without losing the original script."""
+    return text.translate(DIGIT_TRANSLATION_TABLE).replace('\u200c', ' ')
+
+
+def build_reader(languages, gpu_available):
+    reader_options = {
+        'gpu': gpu_available,
+        'model_storage_directory': 'model',
+        'download_enabled': True,
+    }
+    if OCR_RECOG_NETWORK:
+        reader_options['recog_network'] = OCR_RECOG_NETWORK
+    return easyocr.Reader(languages, **reader_options)
+
+
 def get_reader():
     """Lazy load the OCR reader to avoid multiple initializations"""
     global reader
     if reader is None:
+        languages = OCR_LANGUAGES or ['en']
         try:
             import torch
             gpu_available = torch.cuda.is_available()
-            reader = easyocr.Reader(
-                ['en'],
-                gpu=gpu_available,
-                model_storage_directory='model',
-                download_enabled=True,
-                recog_network='english_g2'
+            reader = build_reader(languages, gpu_available)
+            logger.info(
+                f"Initialized EasyOCR for {languages} using "
+                f"{'GPU' if gpu_available else 'CPU'}"
             )
-            logger.info(f"Initialized EasyOCR using {'GPU' if gpu_available else 'CPU'}")
         except Exception:
             logger.exception("Error initializing EasyOCR with GPU; falling back to CPU")
-            reader = easyocr.Reader(
-                ['en'],
-                gpu=False,
-                model_storage_directory='model',
-                download_enabled=True,
-                recog_network='english_g2'
-            )
+            reader = build_reader(languages, False)
     return reader
 
 def extract_nid_fields(image) -> dict:
@@ -108,10 +124,14 @@ def extract_nid_fields(image) -> dict:
                 continue
         
         full_text = " ".join(text_blocks)
+        normalized_text = normalize_ocr_text(full_text)
         nid_data['Full extracted text'] = full_text.strip()
         
         # IMPROVED NAME PATTERNS
         name_patterns = [
+            # Match Persian/Arabic name labels.
+            r'(?:نام(?:\s+و\s+نام\s+خانوادگی)?|اسم|الاسم)\s*[:：.]?\s*([\u0600-\u06FF][\u0600-\u06FF\sـ]{2,50})(?=\s+(?:تاریخ|تاريخ|تولد|میلاد|الميلاد|شماره|رقم|کد|كد|ID|NID|\d)|$)',
+
             # Match "Name" followed by uppercase name (common on ID cards)
             r'Name\s*[:.]?\s*([A-Z][A-Z\s\.]+)(?=\s+(?:fet|faot|ent|Date|Birth|DOB|NID|ID|No|\d)|\n|$)',
             
@@ -129,11 +149,12 @@ def extract_nid_fields(image) -> dict:
         name_blacklist = [
             "NATIONAL ID CARD", "ID CARD", "BANGLADESH", "GOVERNMENT", 
             "PEOPLES", "REPUBLIC", "CARD", "NATIONAL", "DATE OF BIRTH",
-            "GOVERMENT", "soeezledt", "offthe", "Republic"
+            "GOVERMENT", "soeezledt", "offthe", "Republic",
+            "کارت ملی", "جمهوری", "تاریخ تولد", "تاريخ الميلاد", "شماره ملی"
         ]
         
         for pattern in name_patterns:
-            name_match = re.search(pattern, full_text)  # Remove IGNORECASE flag
+            name_match = re.search(pattern, normalized_text)  # Remove IGNORECASE flag
             if name_match:
                 name_candidate = name_match.group(1).strip()
                 
@@ -143,7 +164,7 @@ def extract_nid_fields(image) -> dict:
                     continue
                     
                 # Validate name has reasonable length and format
-                if ' ' in name_candidate and 4 <= len(name_candidate) <= 40:
+                if ' ' in name_candidate and 4 <= len(name_candidate) <= 50:
                     nid_data['Name'] = name_candidate
                     logger.info(f"Found valid name: {name_candidate}")
                     break
@@ -154,14 +175,17 @@ def extract_nid_fields(image) -> dict:
         
         # Extract date of birth with multiple patterns
         dob_patterns = [
+            r'(?:تاریخ تولد|تاريخ الميلاد|تولد|الميلاد|DOB|Birth)[:：.]?\s*(\d{4}[\/\.-]\d{1,2}[\/\.-]\d{1,2})',
+            r'(?:تاریخ تولد|تاريخ الميلاد|تولد|الميلاد|DOB|Birth)[:：.]?\s*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})',
             r'(?:Date of Birth|DOB|Birth)[:.]?\s*(\d{1,2}[\s-](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s-]\d{2,4})',
             r'(?:Date of Birth|DOB|Birth)[:.]?\s*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})',
+            r'(\d{4}[\/\.-]\d{1,2}[\/\.-]\d{1,2})',
             r'(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})',
             r'(\d{1,2}[\s-](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s-]\d{2,4})'
         ]
         
         for pattern in dob_patterns:
-            dob_match = re.search(pattern, full_text, re.IGNORECASE)
+            dob_match = re.search(pattern, normalized_text, re.IGNORECASE)
             if dob_match:
                 nid_data['Date of birth'] = dob_match.group(1).strip()
                 logger.info(f"Found date of birth: {dob_match.group(1).strip()}")
@@ -169,6 +193,9 @@ def extract_nid_fields(image) -> dict:
         
         # COMPREHENSIVE ID NUMBER PATTERNS
         id_patterns = [
+            # Match Persian/Arabic national ID labels
+            r'(?:شماره(?:\s+ملی)?|کد(?:\s+ملی)?|كد(?:\s+وطني)?|رقم(?:\s+الهوية)?|رقم(?:\s+وطني)?)[:：.]?\s*(\d[\d\s-]{5,18}\d)',
+
             # Match "ID NO:" format 
             r'ID\s*NO[:.]?\s*(\d[\d\s-]{5,18}\d)',
             
@@ -195,7 +222,7 @@ def extract_nid_fields(image) -> dict:
         ]
         
         for pattern in id_patterns:
-            id_match = re.search(pattern, full_text)
+            id_match = re.search(pattern, normalized_text)
             if id_match:
                 id_text = id_match.group(1)
                 # Clean up spaces and dashes in the ID number

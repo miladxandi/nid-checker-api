@@ -2,6 +2,12 @@ import os
 import secrets
 from decouple import config
 
+
+def parse_csv_config(name, default):
+    """Parse a comma-separated environment variable into a clean list."""
+    value = config(name, default=default)
+    return [item.strip() for item in value.split(",") if item.strip()]
+
 # Authentication settings
 SECRET_KEY = config("SECRET_KEY", default=secrets.token_hex(32))
 AUTH_TOKEN = config("AUTH_TOKEN", default=secrets.token_hex(16))
@@ -22,6 +28,10 @@ ALLOWED_MIME_TYPES = set(['image/png', 'image/jpeg', 'image/jpg'])
 
 # Cache directory
 CACHE_DIR = config("CACHE_DIR", default="cache")
+
+# OCR language settings
+OCR_LANGUAGES = parse_csv_config("OCR_LANGUAGES", "en,fa,ar")
+OCR_RECOG_NETWORK = config("OCR_RECOG_NETWORK", default="").strip() or None
 
 # OCR parameters (you can add more tuning parameters here)
 OCR_PARAMS = {
